@@ -114,6 +114,7 @@ class PrimeVideo(Singleton):
                     }
 
         url = ''
+        col = None
         if page == 'cache':
             resp = self.loadCache(params)
         else:
@@ -122,8 +123,11 @@ class PrimeVideo(Singleton):
             params += pg['q']
             params = '&' + params if not params.startswith('&') else params
             query_dict = parse_qs(params)
+            url_old = url
             url = url.replace('Initial', 'Next') if 'Initial' in url and int(query_dict.get('startIndex', ['0'])[0]) > 0 else url
             url = url.replace('initial', 'next') if 'initial' in url and 'startIndex' in query_dict else url
+            if url != url_old:
+                col = self.loadCache(quote_plus(params[1:]))
             resp = getURL(f'{url}?{self.defparam}{params}', useCookie=MechanizeLogin(True), headers=self._g.headers_android)
         LogJSON(resp)
 
@@ -134,6 +138,8 @@ class PrimeVideo(Singleton):
             if self.checkError(resp, export):
                 return
             resp = resp.get('resource', resp)
+            if col and 'collections' in resp:
+                resp['collections'] = col['col'] + resp['collections']
             flt = self.getFilter(resp)
             if root:
                 self._createDB(self._cache_tbl)
@@ -209,6 +215,9 @@ class PrimeVideo(Singleton):
                     title = self.cleanTitle(item['headerText'])
                     prdata = item.get('presentationData', item.get('facetedCarouselData', {}))
                     facetxt = prdata.get('facetText')
+                    if isinstance(item.get('containerMetadata', {}), dict):
+                        metatitle = item['containerMetadata'].get('title')
+                        facetxt = metatitle if not facetxt and not title else facetxt
                     col_act = item.get('collectionAction')
                     col_lst = item.get('collectionItemList')
                     col_typ = item.get('collectionType')
@@ -288,6 +297,9 @@ class PrimeVideo(Singleton):
             q['swiftId'] = pgmodel['id']
             q['pageSize'] = self.def_ps
             q['startIndex'] = 0
+            cont = {'collectionId': urlencode(q), 'col': resp['collections']}
+            self.writeCache(cont)
+            self._cacheDb.commit()
             return q
         return None
 
