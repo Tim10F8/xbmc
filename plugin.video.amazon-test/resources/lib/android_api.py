@@ -49,7 +49,8 @@ class PrimeVideo(Singleton):
                         f'&osLocale={self.lang}&uxLocale={self.lang}' \
                         '&supportsPKMZ=false' \
                         '&isLiveEventsV2OverrideEnabled=true' \
-                        '&swiftPriorityLevel=critical'
+                        '&swiftPriorityLevel=critical' \
+                        '&supportsCategories=true'
         self._art_thread = Thread(target=self.processMissing)
 
     def BrowseRoot(self):
@@ -70,16 +71,21 @@ class PrimeVideo(Singleton):
 
     @staticmethod
     def getFilter(resp):
-        flt = {}
+        flt = {'filter_dict': {}, 'text': getString(30289)}
         filters = findKey('filters', resp)
         if len(filters) > 0 and 'refineCollection' in filters[0]:
             filters = filters[0]['refineCollection']
+        if len(filters) == 0 and 'categoryGroups' in resp:
+            filters = [c for i in resp['categoryGroups'] for c in i.get('categories', [])]
+            flt['text'] = getString(30290)
 
         for item in filters:
             if 'text' in item and item['text'] is not None:
                 d = findKey('parameters', item)
                 d['swiftId'] = item['id']
-                flt[item['text']] = d
+                flt['filter_dict'][item['text']] = d
+                if item.get('currentlyApplied') or item.get('isSelected'):
+                    flt['current'] = item['text']
         return flt
 
     def addCtxMenu(self, il, wl, pgmod=1):
@@ -154,19 +160,25 @@ class PrimeVideo(Singleton):
             if page == 'profiles':
                 return resp
 
-            if page in ['watchlist', 'library'] and 'Initial' in url and 'serviceToken' not in query_dict:
-                if export:
-                    Log('Export of watchlist started')
-                for k, v in flt.items():
-                    addDir(k, 'getPage', page, opt=urlencode(v), export=export)
-                if not export:
-                    xbmcplugin.endOfDirectory(self._g.pluginhandle)
-                else:
-                    Log('Export of watchlist finished')
-                    if export == 2:
-                        writeConfig('last_wl_export', time.time())
-                        xbmc.executebuiltin('UpdateLibrary(video)')
-                return
+            if page in ['watchlist', 'library']:
+                if 'initial' in url.lower() and 'serviceToken' not in query_dict:
+                    if export:
+                        Log('Export of watchlist started')
+                    for k, v in flt['filter_dict'].items():
+                        addDir(k, 'getPage', page, opt=urlencode(v), export=export)
+                    if not export:
+                        xbmcplugin.endOfDirectory(self._g.pluginhandle)
+                    else:
+                        Log('Export of watchlist finished')
+                        if export == 2:
+                            writeConfig('last_wl_export', time.time())
+                            xbmc.executebuiltin('UpdateLibrary(video)')
+                    return
+            else:
+                if self._s.show_cats and flt.get('current'):
+                    self.writeCache(flt, resp['id'])
+                    self._cacheDb.commit()
+                    addDir(f'[B]{flt["text"]}: {flt["current"]}[/B]', 'getPage', 'cache', opt=quote_plus(resp['id']))
 
             if page == 'details':
                 if pagenr == -2:
@@ -204,6 +216,11 @@ class PrimeVideo(Singleton):
                     if pt == 'genre':
                         resp = col
 
+            if 'filter_dict' in resp:
+                for k, v in resp['filter_dict'].items():
+                    addDir(k, 'getPage', 'landing', opt=urlencode(v), export=export)
+                xbmcplugin.endOfDirectory(self._g.pluginhandle)
+
             ct = 'files'
             col = findKey('collections', resp)
             if col:
@@ -215,6 +232,7 @@ class PrimeVideo(Singleton):
                     title = self.cleanTitle(item['headerText'])
                     prdata = item.get('presentationData', item.get('facetedCarouselData', {}))
                     facetxt = prdata.get('facetText')
+                    faceimg = prdata.get('facetImageUrl')
                     if isinstance(item.get('containerMetadata', {}), dict):
                         metatitle = item['containerMetadata'].get('title')
                         facetxt = metatitle if not facetxt and not title else facetxt
@@ -233,10 +251,10 @@ class PrimeVideo(Singleton):
                     # faceimg = item.get('presentationData', {}).get('facetImages', {}).get('UNFOCUSED', {}).get('url')
                     if col_act:
                         q = self.filterDict(findKey('parameters', col_act))
-                        addDir(title, 'getPage', col_act['type'], opt=urlencode(q))
+                        addDir(title, 'getPage', col_act['type'], opt=urlencode(q), thumb=faceimg)
                     elif col_lst and 'heroCarousel' not in col_typ:
                         self.writeCache(item)
-                        addDir(title, 'getPage', 'cache', opt=quote_plus(item['collectionId']))
+                        addDir(title, 'getPage', 'cache', opt=quote_plus(item['collectionId']), thumb=faceimg)
                 self._cacheDb.commit()
             else:
                 titles = resp['titles'][0] if 'titles' in resp and len(resp.get('titles', {})) > 0 else resp
@@ -296,9 +314,8 @@ class PrimeVideo(Singleton):
             q = findKey('parameters', pgmodel)
             q['swiftId'] = pgmodel['id']
             q['pageSize'] = self.def_ps
-            q['startIndex'] = 0
-            cont = {'collectionId': urlencode(q), 'col': resp['collections']}
-            self.writeCache(cont)
+            q['startIndex'] = findKey('startIndex', pgmodel)
+            self.writeCache({'col': resp['collections']}, urlencode(q))
             self._cacheDb.commit()
             return q
         return None
@@ -312,9 +329,10 @@ class PrimeVideo(Singleton):
             name = f'[COLOR {self._g.PayCol}]{name}[/COLOR]'
         return name
 
-    def writeCache(self, content):
+    def writeCache(self, content, cont_id=None):
+        cont_id = content['collectionId'] if cont_id is None else cont_id
         c = self._cacheDb.cursor()
-        c.execute(f'insert or ignore into {self._cache_tbl} values (?,?)', [quote_plus(content['collectionId']), json.dumps(content)])
+        c.execute(f'insert or ignore into {self._cache_tbl} values (?,?)', [quote_plus(cont_id), json.dumps(content)])
         c.close()
 
     def loadCache(self, col_id):
