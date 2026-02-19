@@ -374,7 +374,6 @@ def PlayVideo(name, asin, adultstr, streamtype, forcefb=0):
     def _IStreamPlayback(asin, name, streamtype, isAdult, extern):
         from .ages import AgeRestrictions
         bypassproxy = _s.proxy_mpdalter or (streamtype > 1)
-        notLiveTV = streamtype != 2
         if streamtype == 3:
             streamtype, asin = _EventState(asin)
             if streamtype < 0:
@@ -395,7 +394,7 @@ def PlayVideo(name, asin, adultstr, streamtype, forcefb=0):
         # and try again. This is neccessary for content like Amazon Freevee, which is not
         # available though token based authentification.
 
-        for preferTokenToCookie in ([True, False] if _s.wvl1_device and notLiveTV else [False]):
+        for preferTokenToCookie in ([True, False] if _s.wvl1_device and streamtype != 2 else [False]):
             cookie, req_param, headers, dtid, req_headers = _getPlaybackVars(preferToken=preferTokenToCookie)
             if not cookie:
                 _g.dialog.notification(getString(30203), getString(30200), xbmcgui.NOTIFICATION_ERROR)
