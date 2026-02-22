@@ -952,3 +952,11 @@ msgstr "Kategória"
 msgctxt "#30291"
 msgid "Display categories"
 msgstr "Kategóriák megjelenítése"
+
+msgctxt "#30292"
+msgid "Color for paid content"
+msgstr "Szín a fizetős tartalmakhoz"
+
+msgctxt "#30293"
+msgid "Color for Prime content"
+msgstr "Prime-tartalom színe"
