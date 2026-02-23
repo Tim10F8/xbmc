@@ -932,3 +932,11 @@ msgstr "Categoría"
 msgctxt "#30291"
 msgid "Display categories"
 msgstr "Mostrar categorías"
+
+msgctxt "#30292"
+msgid "Color for paid content"
+msgstr "Color para contenido de pago."
+
+msgctxt "#30293"
+msgid "Color for Prime content"
+msgstr "Color para el contenido Prime"
